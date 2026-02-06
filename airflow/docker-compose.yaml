@@ -1,13 +1,16 @@
-
 version: "3.8"
+
 services:
   airflow:
     image: apache/airflow:2.9.3
+    env_file:
+      - .env.local
     environment:
       AIRFLOW__CORE__LOAD_EXAMPLES: "false"
       AIRFLOW__CORE__EXECUTOR: "LocalExecutor"
       _PIP_ADDITIONAL_REQUIREMENTS: "apache-airflow-providers-amazon boto3"
-      # Pass through selected env vars for DAGs/operators
+
+      # Pass through selected env vars for DAGs/operators (AWS mode)
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
       AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION}
@@ -15,11 +18,39 @@ services:
       REDSHIFT_SERVERLESS_WORKGROUP: ${REDSHIFT_SERVERLESS_WORKGROUP}
       REDSHIFT_DATABASE: ${REDSHIFT_DATABASE}
       REDSHIFT_IAM_ROLE_ARN: ${REDSHIFT_IAM_ROLE_ARN}
+
+      # Local-mode vars (MinIO/Postgres DW)
+      EXECUTION_MODE: "local"
+      LOCAL_PG_HOST: "postgres_dw"
+      LOCAL_PG_PORT: "5432"
+      LOCAL_PG_DB: "analytics"
+      LOCAL_PG_USER: "analytics"
+      LOCAL_PG_PASSWORD: "analytics"
+      MINIO_ENDPOINT: "http://minio:9000"
+      MINIO_ACCESS_KEY: "minioadmin"
+      MINIO_SECRET_KEY: "minioadmin"
+      MINIO_BUCKET: "raw"
+      MINIO_RAW_PREFIX: "sales_orders"
+
+
     ports:
       - "8080:8080"
     volumes:
       - ./dags:/opt/airflow/dags
       - ./plugins:/opt/airflow/plugins
       - ../sql:/opt/sql
-    command: ["bash","-c",
-      "airflow db init && airflow users create --username admin --password admin --firstname Admin --lastname User --role Admin --email admin@example.com && airflow webserver & airflow scheduler"]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+    command:
+      [
+        "bash",
+        "-c",
+        "airflow db init && \
+         airflow users list | grep -q '^admin\\b' || airflow users create \
+           --username admin --password admin --firstname Admin --lastname User \
+           --role Admin --email admin@example.com && \
+         airflow webserver & airflow scheduler"
+      ]
